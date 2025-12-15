@@ -1,3 +1,5 @@
+#构建了一个完整的确定性物理信息神经网络（Deterministic PINN）训练框架。它继承自之前定义的BasePINNModel，并利用DeterministicLinear层来构建网络，最后提供了一个包含物理约束（PDE、边界条件、初始条件）的训练循环
+
 from utils_uqmd.interface_model import BasePINNModel
 
 import torch
