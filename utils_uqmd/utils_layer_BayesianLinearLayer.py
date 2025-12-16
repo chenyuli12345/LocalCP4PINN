@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import math
 
-
+#贝叶斯线性层的实现
 
 # def default_mu_rho(in_features, out_features,
 #                    mu_std=0.1, rho=-3.0,
@@ -25,6 +25,7 @@ import math
 import torch
 import torch.nn as nn
 
+#
 def default_mu_rho(in_features, out_features,
                   mu_std=0.1,        # accepted for API compatibility, unused
                   rho=-3.0,
@@ -34,14 +35,14 @@ def default_mu_rho(in_features, out_features,
         # if using tanh activations downstream, this is recommended
         gain = nn.init.calculate_gain('tanh')  # 5/3
 
-    # Weight mean
+    # 权重的均值
     weight_mu = nn.Parameter(torch.empty(out_features, in_features))
     nn.init.xavier_uniform_(weight_mu, gain=gain)
 
-    # Bias mean: typically start from zero
+    #偏置的均值
     bias_mu = nn.Parameter(torch.zeros(out_features))
 
-    # Rho parameters (pre-softplus)
+    #Rho参数，用于计算权重和偏置的标准差，同时通过softplus函数确保标准差为正值
     weight_rho = nn.Parameter(torch.full((out_features, in_features), rho))
     bias_rho   = nn.Parameter(torch.full((out_features,), rho))
 

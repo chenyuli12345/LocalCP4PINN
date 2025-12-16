@@ -33,6 +33,6 @@ class DeterministicLinear(nn.Module):
 
     def kl_divergence(self):
         """
-        通过实现kl_divergence接口，它伪装成了一个“KL 散度为 0 的贝叶斯层”，从而可以无缝插入到贝叶斯神经网络的训练流程中，无需修改外部训练代码
+        通过实现kl_divergence接口，它伪装成了一个“KL散度为0的贝叶斯层”，从而可以无缝插入到贝叶斯神经网络的训练流程中，无需修改外部训练代码
         """
         return torch.tensor(0.0, device=self.weight.device)
