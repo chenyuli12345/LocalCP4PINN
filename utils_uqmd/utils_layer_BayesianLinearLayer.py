@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import math
 
-#贝叶斯线性层的实现
+#贝叶斯线性层的实现，贝叶斯的权重和偏置服从概率分布（通常是高斯分布）。训练过程中不直接学习权重值，而是学习权重分布的参数（均值μ和标准差σ）
 
 # def default_mu_rho(in_features, out_features,
 #                    mu_std=0.1, rho=-3.0,
@@ -25,17 +25,17 @@ import math
 import torch
 import torch.nn as nn
 
-#
+#初始化函数，用于初始化贝叶斯层中需要学习的参数，包括权重和偏置的均值（mu）和rho（用于计算标准差）
 def default_mu_rho(in_features, out_features,
-                  mu_std=0.1,        # accepted for API compatibility, unused
-                  rho=-3.0,
-                  prior_std=1.0,
+                  mu_std=0.1,        # 兼容旧API，实际代码中未被使用
+                  rho=-3.0,         #决定初始标准差的参数
+                  prior_std=1.0,   #先验分布的标准差
                   gain=None):
     if gain is None:
-        # if using tanh activations downstream, this is recommended
+        #如果后续使用 tanh 激活函数，推荐使用 5/3 的增益，保持方差稳定
         gain = nn.init.calculate_gain('tanh')  # 5/3
 
-    # 权重的均值
+    #权重的均值
     weight_mu = nn.Parameter(torch.empty(out_features, in_features))
     nn.init.xavier_uniform_(weight_mu, gain=gain)
 
@@ -51,6 +51,7 @@ def default_mu_rho(in_features, out_features,
 
 class BayesianLinearLayer(BaseLayer):
     """
+    
     Fully-factorised Bayesian linear layer.
     Call with  sample=False  to obtain the posterior *mean* (deterministic).
     """
