@@ -56,7 +56,7 @@ class BayesianLinearLayer(BaseLayer): #继承自BaseLayer
 
     def __init__(self, in_features, out_features,
                  mu_std=0.1, rho=-3.0, prior_std=1.0,
-                 initialization=default_mu_rho):
+                 initialization=default_mu_rho): #参数分别为输入维度、输出维度、mu的标准差、rho参数、先验标准差、初始化函数
         super().__init__()
         (self.weight_mu, self.weight_rho,
          self.bias_mu,  self.bias_rho,
@@ -89,13 +89,18 @@ class BayesianLinearLayer(BaseLayer): #继承自BaseLayer
         return x.matmul(weight.t()) + bias #执行线性变换: y = xW^T + b
 
     # ---------- 当前层KL散度的计算 ----------
+    #希望后验分布（学到的）不要偏离先验分布（初始印象）太远，因此在训练过程中会计算KL散度作为正则化项（防止过拟合）
+    #代码中假设权重的“先验分布”和“后验分布”都是高斯分布（正态分布）。其中后验分布q(w)（模型学到的），均值为μ，标准差为σ。先验分布p(w)（我们预设的）：均值为0，标准差为σ_p（代码中的 prior_std）。对于这两个单变量高斯分布，它们之间的 KL 散度公式是：D_KL(q||p) = ln(σ_p/σ) + (σ^2 + (μ - 0)^2) / (2σ_p^2) - 1/2，这个公式由三部分组成。
     def kl_divergence(self):
-        w_sigma = self._softplus(self.weight_rho)
+        w_sigma = self._softplus(self.weight_rho) #计算后验的标准差
         b_sigma = self._softplus(self.bias_rho)
-        prior_var = self.prior_std ** 2
+        prior_var = self.prior_std ** 2 #先验分布的方差
 
-        kl_w = torch.sum(torch.log(self.prior_std / w_sigma) +
-                         0.5 * (w_sigma ** 2 + self.weight_mu ** 2) / prior_var - 0.5)
+        #这里sum的作用是因为一个线性层有成千上万个权重（W）和偏置（b），我们假设每个权重之间是相互独立的，所以把所有权重的 KL 散度累加起来，得到这一层总的“代价”
+        kl_w = torch.sum(torch.log(self.prior_std / w_sigma) + #ln(σ_p/σ)（对比两个分布的“胖瘦”（宽度）。如果模型学到的σ非常小（分布非常窄/瘦），这一项的值就会变得很大。这相当于在惩罚那些过于“自信”的神经元。）
+                         0.5 * (w_sigma ** 2 + self.weight_mu ** 2) / prior_var #(σ^2 + μ^2) / (2σ_p^2)（对比两个分布的“位置”。如果均值μ离0很远，或者σ很大，这一项就会增加。这相当于L2正则化（权重衰减），它防止权重数值炸裂）
+                         - 0.5 #常数项，保证当两个分布完全一样时，KL散度为0
+                         )
         kl_b = torch.sum(torch.log(self.prior_std / b_sigma) +
                          0.5 * (b_sigma ** 2 + self.bias_mu ** 2) / prior_var - 0.5)
         return kl_w + kl_b

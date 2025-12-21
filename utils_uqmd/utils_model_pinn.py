@@ -96,11 +96,11 @@ class PINN(DeterministicFeedForwardNN):
             if hasattr(self.pde, 'residual'):
                 loss_pde = self.pde.residual(self, coloc_pt_num)
                 loss+=λ_pde * loss_pde
-            # B.C. conditions
+            # 边界值损失
             if hasattr(self.pde, 'boundary_loss'):
                 loss_bc = self.pde.boundary_loss(self)
                 loss+=λ_bc * loss_bc
-            # I.C. conditions
+            # 初值损失
             if hasattr(self.pde, 'ic_loss'):
                 loss_ic = self.pde.ic_loss(self)
                 loss+=λ_ic * loss_ic
@@ -113,6 +113,7 @@ class PINN(DeterministicFeedForwardNN):
                 print(f"ep {epoch:5d} | L={loss:.2e} | pde={loss_pde:.2e}  "
                       f"ic={loss_ic:.2e}  bc={loss_bc:.2e} | lr={opt.param_groups[0]['lr']:.2e} ")
 
+            #学习率调节器
             if epoch <= stop_schedule:
                 if scheduler:
                     if isinstance(scheduler, ReduceLROnPlateau):
