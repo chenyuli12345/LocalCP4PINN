@@ -49,11 +49,9 @@ def default_mu_rho(in_features, out_features,
     return weight_mu, weight_rho, bias_mu, bias_rho, float(prior_std)
 
 
-class BayesianLinearLayer(BaseLayer):
+class BayesianLinearLayer(BaseLayer): #继承自BaseLayer
     """
-    
-    Fully-factorised Bayesian linear layer.
-    Call with  sample=False  to obtain the posterior *mean* (deterministic).
+    全因子化的贝叶斯线性层，在调用时将sample=False，即可得到后验分布的均值（确定性输出）。
     """
 
     def __init__(self, in_features, out_features,
@@ -64,21 +62,22 @@ class BayesianLinearLayer(BaseLayer):
          self.bias_mu,  self.bias_rho,
          self.prior_std) = initialization(in_features, out_features,
                                           mu_std=mu_std, rho=rho,
-                                          prior_std=prior_std)
-        self.log2pi = math.log(2 * math.pi)
+                                          prior_std=prior_std) #调用初始化函数获得四个可学习的参数
+        self.log2pi = math.log(2 * math.pi) #一个常数
 
-    # ---------- helpers ----------
+    # ---------- 辅助函数 ----------
     @staticmethod
     def _softplus(x):
+        #Softplus函数：平滑的ReLU，将(-inf,inf)映射到(0,inf)
         return torch.log1p(torch.exp(x))
 
     # ---------- forward ----------
     def forward(self, x, *, sample: bool = True):
         """
-        When sample=True (default) draw a new weight/bias sample.
-        When sample=False use only the posterior means for deterministic output.
+        sample=True: 训练时使用。从分布中随机采样权重，模拟不确定性。
+        sample=False: 预测/测试时使用。直接使用均值，相当于普通的确定性神经网络。
         """
-        if sample:
+        if sample: #训练时
             w_sigma = self._softplus(self.weight_rho)
             b_sigma = self._softplus(self.bias_rho)
             eps_w   = torch.randn_like(w_sigma)
@@ -87,9 +86,9 @@ class BayesianLinearLayer(BaseLayer):
             bias    = self.bias_mu  + b_sigma * eps_b
         else:                       # posterior mean
             weight, bias = self.weight_mu, self.bias_mu
-        return x.matmul(weight.t()) + bias
+        return x.matmul(weight.t()) + bias #执行线性变换: y = xW^T + b
 
-    # ---------- KL divergence ----------
+    # ---------- 当前层KL散度的计算 ----------
     def kl_divergence(self):
         w_sigma = self._softplus(self.weight_rho)
         b_sigma = self._softplus(self.bias_rho)

@@ -21,6 +21,7 @@ torch.set_default_device(device)
 print(f"Using device: {device}")
 
 
+#构建前馈神经网络，使用自定义的确定性线性层，用于变分推断（VI）
 class DeterministicFeedForwardNN(BasePINNModel):
     """Feed-forward neural network with Deterministic linear layers (for VI)."""
     def __init__(self, input_dim, hidden_dims, output_dim, act_func=nn.Tanh()):
@@ -55,6 +56,7 @@ class PINN(DeterministicFeedForwardNN):
         super().__init__(input_dim, hidden_dims, output_dim, activation)
         self.pde = pde_class
 
+    #训练PINN
     def fit_pinn(self,
         coloc_pt_num,
         X_train, Y_train,
@@ -63,21 +65,22 @@ class PINN(DeterministicFeedForwardNN):
         scheduler_cls = StepLR, scheduler_kwargs = {'step_size': 5000, 'gamma': 0.5},
         stop_schedule = 40000):
 
-        # move model to device
+        #将模型移动到指定设备上
         self.to(device)
-        # Optimizer
+        #优化器
         opt = torch.optim.Adam(self.parameters(), lr=lr)
-        # Scheduler
+        #可选学习率调度器
         scheduler = scheduler_cls(opt, **scheduler_kwargs) if scheduler_cls else None
 
-        # Training History
+        #创建若干历史纪录列表
         pde_loss_his = []
         bc_loss_his = []
         ic_loss_his = []
         data_loss_his = []
 
-        for epoch in range(1, epochs + 1):
-            opt.zero_grad()
+        #主循环
+        for epoch in range(1, epochs + 1): #对于每一个epoch
+            opt.zero_grad() #清零梯度
 
             # Init them as 0
             loss_data = 0
@@ -85,11 +88,11 @@ class PINN(DeterministicFeedForwardNN):
             loss_bc = 0
             loss_ic = 0
 
-            # Data loss
+            # 数据损失
             Y_pred = self.forward(X_train)
-            loss_data = ((Y_pred - Y_train) ** 2).mean()
-            loss=λ_data*loss_data
-            # PDE residual
+            loss_data = ((Y_pred - Y_train) ** 2).mean() #计算数据损失
+            loss=λ_data*loss_data #目前总损失即为数据损失
+            # PDE损失
             if hasattr(self.pde, 'residual'):
                 loss_pde = self.pde.residual(self, coloc_pt_num)
                 loss+=λ_pde * loss_pde
