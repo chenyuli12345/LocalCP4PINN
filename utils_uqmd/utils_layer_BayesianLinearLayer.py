@@ -56,7 +56,7 @@ class BayesianLinearLayer(BaseLayer): #继承自BaseLayer
 
     def __init__(self, in_features, out_features,
                  mu_std=0.1, rho=-3.0, prior_std=1.0,
-                 initialization=default_mu_rho): #参数分别为输入维度、输出维度、mu的标准差、rho参数、先验标准差、初始化函数
+                 initialization=default_mu_rho): #参数分别为输入维度、输出维度、mu的标准差、rho参数、先验标准差（初始状态下模型有多不确定）
         super().__init__()
         (self.weight_mu, self.weight_rho,
          self.bias_mu,  self.bias_rho,
@@ -103,7 +103,7 @@ class BayesianLinearLayer(BaseLayer): #继承自BaseLayer
                          )
         kl_b = torch.sum(torch.log(self.prior_std / b_sigma) +
                          0.5 * (b_sigma ** 2 + self.bias_mu ** 2) / prior_var - 0.5)
-        return kl_w + kl_b
+        return kl_w + kl_b #返回该层的总KL散度
 
 
 # Explain::

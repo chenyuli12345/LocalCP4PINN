@@ -6,19 +6,19 @@ import torch.nn as nn
 import math
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 ##########################################################
-# TODO: Change to PINN structure for this Bayesian Network
+# TODO: 将PINN的网络结构转换为贝叶斯网络结构
 ##########################################################
 
 
 class BayesianFeedForwardNN(BasePINNModel):
-    """Feed-forward neural network with Bayesian linear layers (for VI)."""
-    def __init__(self, input_dim, hidden_dims, output_dim, mu_std, rho, prior_std=1.0, act_func=nn.Tanh()):
+    """具有贝叶斯线性层的前馈神经网络 (for VI)."""
+    def __init__(self, input_dim, hidden_dims, output_dim, mu_std, rho, prior_std=1.0, act_func=nn.Tanh()): #参数分别为输入维度、隐藏层维度列表、输出维度、mu的标准差、rho参数、先验标准差、激活函数
         super().__init__()
         if isinstance(hidden_dims, int):
             hidden_dims = [hidden_dims]
         layers = []
         prev_dim = input_dim
-        # Build hidden layers with BayesianLinear
+        # 遍历 hidden_dims（隐藏层维度列表），在每一层都放置一个 BayesianLinear
         for h in hidden_dims:
             layers.append(BayesianLinear(prev_dim, h, mu_std, rho, prior_std))  # in_feat, out_feat, prior_std
             layers.append(act_func)
