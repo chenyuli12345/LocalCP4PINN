@@ -48,7 +48,7 @@ def default_mu_rho(in_features, out_features,
 
     return weight_mu, weight_rho, bias_mu, bias_rho, float(prior_std)
 
-
+#贝叶斯层的权重w和偏执不是一个固定的数，而是一个概率分布（通常假设为高斯分布w∼N(μ,σ^2)，其中μ是均值，σ是标准差）
 class BayesianLinearLayer(BaseLayer): #继承自BaseLayer
     """
     全因子化的贝叶斯线性层，在调用时将sample=False，即可得到后验分布的均值（确定性输出）。
@@ -56,7 +56,7 @@ class BayesianLinearLayer(BaseLayer): #继承自BaseLayer
 
     def __init__(self, in_features, out_features,
                  mu_std=0.1, rho=-3.0, prior_std=1.0,
-                 initialization=default_mu_rho): #参数分别为输入维度、输出维度、mu的标准差、rho参数、先验标准差（初始状态下模型有多不确定）
+                 initialization=default_mu_rho): #参数分别为输入维度、输出维度、mu的标准差(好像没用，初始化权重和偏置的均值μ时直接用0)、rho参数（初始时刻的rho值，然后通过softplus函数即变为最终权重和偏置的标准差）、先验标准差（初始状态下模型有多不确定，即预设的权重和偏置的高斯分布的标准差，均值为0，预设的标准差越小，相当于强正则化，强迫模型学到的权重必须非常接近0，且分布非常窄；预设的标准差越大，相当于弱正则化，允许模型学到的权重这就偏离0较远，或者拥有较大的不确定性）
         super().__init__()
         (self.weight_mu, self.weight_rho,
          self.bias_mu,  self.bias_rho,
@@ -89,8 +89,9 @@ class BayesianLinearLayer(BaseLayer): #继承自BaseLayer
         return x.matmul(weight.t()) + bias #执行线性变换: y = xW^T + b
 
     # ---------- 当前层KL散度的计算 ----------
-    #希望后验分布（学到的）不要偏离先验分布（初始印象）太远，因此在训练过程中会计算KL散度作为正则化项（防止过拟合）
+    #希望后验分布（学到的）不要偏离先验分布（初始印象）太远，因此在训练过程中会计算KL散度作为正则化项（防止过拟合）。     
     #代码中假设权重的“先验分布”和“后验分布”都是高斯分布（正态分布）。其中后验分布q(w)（模型学到的），均值为μ，标准差为σ。先验分布p(w)（我们预设的）：均值为0，标准差为σ_p（代码中的 prior_std）。对于这两个单变量高斯分布，它们之间的 KL 散度公式是：D_KL(q||p) = ln(σ_p/σ) + (σ^2 + (μ - 0)^2) / (2σ_p^2) - 1/2，这个公式由三部分组成。
+    #prior_std：先验信念（正则化强度）。含义是在训练前人为设定的、理想中的权重分布的标准差。作用是定义了KL散度中的目标分布p(w)：p(w)=N(0,prior_std^2)。在训练中计算KL散度，目的是让学到的后验分布q(w)靠近这个先验分布p(w)。较小的 prior_std（如0.1）相当于强正则化（类似于很强的L2 Weight Decay），强迫模型学到的权重必须非常接近0，且分布非常窄。较大的prior_std（如1.0）相当于弱正则化，允许模型学到的权重这就偏离0较远，或者拥有较大的不确定性.   
     def kl_divergence(self):
         w_sigma = self._softplus(self.weight_rho) #计算后验的标准差
         b_sigma = self._softplus(self.bias_rho)

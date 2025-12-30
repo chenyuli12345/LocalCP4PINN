@@ -8,12 +8,12 @@ from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from utils_uqmd.interface_model import BasePINNModel
 from utils_uqmd.utils_layer_DeterministicLinearLayer import DeterministicLinear
 
+#构建基于距离度量不确定性的PINN。这个模型本身是确定性的，通过计算“测试点距离训练数据的远近”来估算不确定性。
+
 
 class DistanceUQPINN(BasePINNModel):
     """
-    A Physics-Informed Neural Network whose prediction **bands** are determined
-    purely by k-NN distance in either input (feature) or hidden (latent) space.
-    No conformal calibration is used.
+    一种物理信息神经网络，其预测带完全由输入（特征）空间或隐（潜）空间中的 k-近邻（k-NN）距离决定。该方法未使用CP校准。
     """
 
     # ───────────────────── constructor ─────────────────────
@@ -41,7 +41,7 @@ class DistanceUQPINN(BasePINNModel):
         self.device = device
         self.to(self.device)
 
-        # Training data cache (needed for distance computation later)
+        # 占位符：用于缓存训练数据，以便后续计算距离
         self._X_train_cached = None
 
 
@@ -50,15 +50,15 @@ class DistanceUQPINN(BasePINNModel):
         """
         Parameters
         ----------
-        x : (N, input_dim) tensor
-        return_hidden : if True, also return last hidden representation
+        x : (N, input_dim)形状的张量
+        return_hidden : 如果是Ture，同时返回最后一个隐藏层的输出
         """
         out, hidden = x, None
         for layer in self.layers:
             out = layer(out)
             if isinstance(layer, DeterministicLinear):
-                hidden = out          # capture after linear, before activation
-        return (out, hidden) if return_hidden else out
+                hidden = out          # 捕获线性变换后、激活函数前的数值
+        return (out, hidden) if return_hidden else out #如果return_hidden为True，则返回输出和输出层未经激活函数的输出（大部分时候直接等于输出）
 
 
     # ───────────────────── trainer ─────────────────────
@@ -80,7 +80,7 @@ class DistanceUQPINN(BasePINNModel):
         stop_schedule: int            = 40_000
     ):
         """Standard PINN training (MSE + PDE/BC/IC losses)."""
-        # Cache training inputs for distance heuristics
+        #缓存训练数据（这里是带输出的数据点，即观测数据点，不是配位点），这是为了后续预测时计算距离
         self._X_train_cached = X_train.detach()
 
         X_train, Y_train = X_train.to(self.device), Y_train.to(self.device)
@@ -91,7 +91,7 @@ class DistanceUQPINN(BasePINNModel):
             opt.zero_grad()
             loss = λ_data * ((self.forward(X_train) - Y_train) ** 2).mean()
 
-            if hasattr(self.pde, 'residual'):
+            if hasattr(self.pde, 'residual'): #检查self.pde这个对象里，是否存在一个叫做 'residual' 的属性或方法
                 loss += λ_pde * self.pde.residual(self, coloc_pt_num)
             if hasattr(self.pde, 'boundary_loss'):
                 loss += λ_bc * self.pde.boundary_loss(self)
@@ -100,6 +100,7 @@ class DistanceUQPINN(BasePINNModel):
 
             loss.backward(); opt.step()
 
+            #日志与学习率调度(Scheduler):PINN的Loss Landscape通常非常崎岖（非凸、有很多局部极小值）。刚开始使用较大的学习率（lr的初始值）快速下降。随着训练进行，衰减学习率（gamma=0.7）以便微调，进入更深的谷底。并且为了防止学习率变得过小导致训练停滞，代码加了一个保险：在超过stop_schedule步后，即使还在训练，也不再降低学习率了。
             if ep % print_every == 0 or ep == 1:
                 print(f"ep {ep:5d} | L={loss:.2e} | lr={opt.param_groups[0]['lr']:.1e}")
 
