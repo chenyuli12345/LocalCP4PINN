@@ -112,11 +112,12 @@ class DistanceUQPINN(BasePINNModel):
 
 
     # ───────────────────── distance helpers ─────────────────────
-    @staticmethod
-    def _to_np(x): return x.detach().cpu().numpy() if isinstance(x, torch.Tensor) else np.asarray(x)
+    @staticmethod #装饰器，表明是一个静态方法，不需要实例对象(self参数)即可调用
+    def _to_np(x): return x.detach().cpu().numpy() if isinstance(x, torch.Tensor) else np.asarray(x) #一个静态工具方法，将张量转换为NumPy数组
 
-    def _feature_dist(self, X_test: torch.Tensor, k: int):
-        """Mean k-NN distance in the raw input space."""
+    #两种距离度量方式
+    def _feature_dist(self, X_test: torch.Tensor, k: int): #特征空间距离
+        """在原始输入空间中计算k近邻距离"""
         trn, tst = self._to_np(self._X_train_cached), self._to_np(X_test)
         nnm = NearestNeighbors(n_neighbors=k).fit(trn)
         d, _ = nnm.kneighbors(tst)
