@@ -58,7 +58,7 @@ class DistanceUQPINN(BasePINNModel):
             out = layer(out)
             if isinstance(layer, DeterministicLinear):
                 hidden = out          # 捕获线性变换后、激活函数前的数值
-        return (out, hidden) if return_hidden else out #如果return_hidden为True，则返回输出和输出层未经激活函数的输出（大部分时候直接等于输出）
+        return (out, hidden) if return_hidden else out #如果return_hidden为True，则返回最后一层的输出和最后一层未经激活函数的输出（大部分时候直接等于输出）
 
 
     # ───────────────────── trainer ─────────────────────
@@ -117,24 +117,25 @@ class DistanceUQPINN(BasePINNModel):
 
     #两种距离度量方式
     def _feature_dist(self, X_test: torch.Tensor, k: int): #特征空间距离
-        """在原始输入空间中计算k近邻距离"""
-        trn, tst = self._to_np(self._X_train_cached), self._to_np(X_test)
-        nnm = NearestNeighbors(n_neighbors=k).fit(trn)
-        d, _ = nnm.kneighbors(tst)
-        return d.mean(axis=1)                       # (N,)
+        """在原始输入空间中计算k近邻距离，在原始输入X空间计算测试点与训练集最近的k个点的平均距离。"""
+        trn, tst = self._to_np(self._X_train_cached), self._to_np(X_test) #获取缓存的训练点/观测数据训练点的坐标 (trn) 和新增的测试点坐标 (tst)
+        nnm = NearestNeighbors(n_neighbors=k).fit(trn) #这里的fit实际上是在构建一种数据结构（通常是KD-Tree或Ball-Tree），参数k是k临近，fit中的参数是缓存的训练点/观测数据训练点的坐标
+        d, _ = nnm.kneighbors(tst) #参数是新增的测试点坐标，d是一个形状为 (N_test, k) 的矩阵。每一行对应一个测试点，每一行里有k 个数值，代表离它最近的第 1、第 2...第k个训练点的欧几里得距离，第二个_ (Indices)则是对应邻居的索引，_把这个返回值忽略掉
+        return d.mean(axis=1)  # (N,)，对每一行的k个距离求平均，得到了一个长度为N_test的向量，代表每个新增的测试点所最近的k个训练点的平均欧几里得距离
 
     def _latent_dist(self, X_test: torch.Tensor, k: int):
-        """Mean k-NN distance in the last hidden layer."""
-        with torch.no_grad():
-            H_trn = self.forward(self._X_train_cached.to(self.device), return_hidden=True)[1]
-            H_tst = self.forward(X_test.to(self.device),               return_hidden=True)[1]
+        """最后一个隐藏层的平均k-NN距离（实际上用的是输出层的，原因在forward方法上）"""
+        with torch.no_grad(): #禁用梯度
+            H_trn = self.forward(self._X_train_cached.to(self.device), return_hidden=True)[1] #获取缓存的训练点/观测数据训练点的隐藏特征
+            H_tst = self.forward(X_test.to(self.device),               return_hidden=True)[1] #获取新增的测试点的隐藏特征
         trn, tst = self._to_np(H_trn), self._to_np(H_tst)
         nnm = NearestNeighbors(n_neighbors=k).fit(trn)
         d, _ = nnm.kneighbors(tst)
         return d.mean(axis=1)
 
 
-    # ───────────────────── prediction with bands ─────────────────────
+    # ───────────────────── 预测和不确定性量化 ─────────────────────
+    #将训练好的网络权重（用于预测值）和计算出的空间距离（用于预测带）结合起来，输出一个带置信区间的预测结果
     def predict(
         self,
         alpha:       float,
@@ -145,52 +146,52 @@ class DistanceUQPINN(BasePINNModel):
         return_band: bool  = True,
     ):
         """
-        Parameters
+        输入参数
         ----------
-        X_test : (N, input_dim) tensor
-        heuristic_u : 'feature' | 'latent'
-        k : int              number of neighbours for k-NN distance
-        scale : float        converts distance → predictive σ̂
-        return_band : bool   if False, return point predictions only
-        alpha : float        mis-coverage; 0.05 ⇒ 95 % interval
+        X_test : (N, input_dim)形状的tensor，新增的测试点的坐标
+        heuristic_u : 'feature' | 'latent'，选择距离度量方式:'feature'或'latent'
+        k : int              k-NN距离的邻居数量
+        scale : float        将几何距离转化为预测的标准差（不确定度） → 预测的 σ̂
+        return_band : bool   如果是False，只返回点的预测值
+        alpha : float        误覆盖率，如0.05代表 95% 置信区间
 
-        Returns
+        返回值
         -------
-        • ŷ                        if return_band is False
-        • (lower, upper) tensors    if return_band is True
+        • ŷ                        如果return_band是False
+        • (lower, upper) tensors    如果return_band是True
         """
         X_test = X_test.to(self.device)
 
-        # ─── point prediction ───────────────────────────────────────────
-        with torch.no_grad():
-            y_pred = self.forward(X_test)          # (N, out_dim)
+        # ─── 点的预测 ───────────────────────────────────────────
+        with torch.no_grad(): #不计算梯度
+            y_pred = self.forward(X_test)          # (N, out_dim)形状，获得新增的测试点的输出
 
         if not return_band:
-            return y_pred                          # just the mean
+            return y_pred                          # 只返回均值
 
         if self._X_train_cached is None:
             raise RuntimeError("Must call fit() before predict() so training data is cached.")
 
-        # ─── distance-based scale → σ̂ ──────────────────────────────────
+        # ─── 确定不确定性的大小σ̂ ───────────────────────
         dist = (self._feature_dist(X_test, n_samples) if heuristic_u == "feature"
-                else self._latent_dist(X_test, n_samples))                     # (N,)
-        sigma_hat = torch.from_numpy(dist)[:, None].to(self.device)   # (N,1)
+                else self._latent_dist(X_test, n_samples))                     # (N,)，计算新增测试点在“原始空间”或“隐层空间”里离训练集的平均距离dist
+        sigma_hat = torch.from_numpy(dist)[:, None].to(self.device)   # (N,1)，将距离(dist)等同于标准差 (σ^)。即如果一个点离训练集1.0单位远，就假设预测误差的标准差也是1.0
 
-        alpha_tensor = torch.as_tensor(1.0 - alpha / 2.0, device=self.device)
+        #计算分位数
+        alpha_tensor = torch.as_tensor(1.0 - alpha / 2.0, device=self.device) #用户允许的“出错概率”（误覆盖率），alpha=0.05意味着想要95%的置信区间。
         z = torch.distributions.Normal(0.0, 1.0).icdf(alpha_tensor)
 
         # ─── (1-α) interval:  ŷ ± z·σ̂ ───────────────────────────────
         lower = y_pred - z * sigma_hat
         upper = y_pred + z * sigma_hat
-        return (lower, upper)
+        return (lower, upper) #返回上下界
 
 
-
-    @torch.inference_mode()
+    @torch.inference_mode() #PyTorch较新版本中no_grad()的增强版，性能更好，专门用于推理。
     def data_loss(self, X_test, Y_test):
-        """Compute the data loss on the testing data set"""
-        preds = self(X_test)
+        """计算测试数据集上的均方误差测试损失"""
+        preds = self(X_test) #执行前向传播,等同于调用self.forward(X_test)
         loss  = torch.nn.functional.mse_loss(preds, Y_test,
-                                             reduction="mean")
+                                             reduction="mean") #计算均方误差 (MSE)：(1/N) * Σ(预测值 - 真实值)^2
         # If the caller asked for a reduced value, return the Python float
-        return loss.item() 
+        return loss.item()  #返回python原生数值
