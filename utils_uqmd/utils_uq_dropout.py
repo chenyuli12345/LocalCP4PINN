@@ -4,20 +4,21 @@ from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 from utils_uqmd.utils_model_pinn import *
 from utils_uqmd.utils_layer_DeterministicLinearLayer import DeterministicLinear
 
+#实现了一个带有蒙特卡洛 Dropout（Monte Carlo Dropout）进行不确定性量化的PINN
+
 # ───────────────────────────────────────────────────────────────────────────────
-#  1.  Feed-forward network that inserts Drop-out after every deterministic layer
+#  1.  在每一个确定性层后插入了Drop-out的前馈神经网络
 # ───────────────────────────────────────────────────────────────────────────────
 
 class DeterministicDropoutNN(nn.Module):
     """
-    Fully–connected network identical to DeterministicFeedForwardNN,
-    but each hidden block is Linear ▸ Dropout ▸ Activation.
+    与DeterministicFeedForwardNN相同的全连接网络，但每个隐藏层模块由Linear ▸ Dropout ▸ Activation组成。也就是在每一个全连接层后加入了Drop-out层。
     """
     def __init__(self,
                  input_dim: int,
                  hidden_dims,
                  output_dim: int,
-                 p_drop: float,
+                 p_drop: float, # dropout概率
                  act_func = nn.Tanh()
     ):
         super().__init__()
@@ -30,7 +31,7 @@ class DeterministicDropoutNN(nn.Module):
         for h in hidden_dims:
             layers.extend([
                 DeterministicLinear(prev, h),
-                nn.Dropout(p_drop),           # <── new
+                nn.Dropout(p_drop),           # <──新加的Dropout层
                 act_func
             ])
             prev = h
@@ -44,7 +45,7 @@ class DeterministicDropoutNN(nn.Module):
 
 
 # ───────────────────────────────────────────────────────────────────────────────
-#  2.  PINN wrapper with the standard physics losses *plus* MC-Drop-out UQ
+#  2.  带有标准物理损失并额外引入MC-Dropout不确定性量化的PINN封装器
 # ───────────────────────────────────────────────────────────────────────────────
 
 class DropoutPINN(nn.Module):
@@ -55,6 +56,7 @@ class DropoutPINN(nn.Module):
     -----
 
     """
+    #这一部份和标准PINN训练几乎完全一样
     def __init__(self,
                  pde_class,
                  input_dim: int,
@@ -152,41 +154,41 @@ class DropoutPINN(nn.Module):
                 "Boundary Condition Loss": bc_loss_his, "PDE Residue Loss": pde_loss_his}
 
     # -------------------------------------------------------------------------
-    # Uncertainty-aware prediction
+    # 这一部份开始不一样，不确定性感知的预测，使用MC Dropout生成预测和相关的不确定性区间
     # -------------------------------------------------------------------------
-    # Dropout Model
+    # Dropout模型
     @torch.inference_mode()
     def predict(
         # ------------ args ---------------
-        self, alpha,
-        X_test,  
+        self, alpha, #置信区间的显著性水平（例如对于95%的区间，alpha=0.05）
+        X_test,  #需要进行预测和不确定性估计的输入数据
         # ----------- kwargs ---------------
-        n_samples: int = 100,
-        keep_dropout: bool = True
+        n_samples: int = 100, #在启用Dropout的情况下进行前向传播的次数。更多的样本通常能更好地估计不确定性。
+        keep_dropout: bool = True #如果为True，则明确将Dropout层设置为训练模式 (self.train())，然后调用之后的enable_mc_dropout()方法 以确保Dropout在推理期间处于活动状态
     ):
         if keep_dropout:
             self.train()
             self.enable_mc_dropout()
 
         preds = []
-        for _ in range(n_samples):
+        for _ in range(n_samples): #对所有测试数据X_test循环运行n_samples次正向传播。由于Dropout处于活动状态，每次传播都会产生略微不同的预测。
             preds.append(self.forward(X_test))
-        preds = torch.stack(preds)                         # (S, N, out)
-        mean = preds.mean(0)
-        std  = preds.std(0)
+        preds = torch.stack(preds)                     #将这些预测堆叠起来，生成一个形状为(n_samples,num_test_points,output_dim)的张量。    # (S, N, out)
+        mean = preds.mean(0) #获取多次预测的均值
+        std  = preds.std(0) #获取多次预测的标准差
 
-        # Two-sided (1-alpha) Gaussian interval
+        # 计算置信区间（双侧(1−α)高斯置信区间）
         z = torch.tensor(
             abs(torch.distributions.Normal(0,1).icdf(torch.tensor(alpha/2))),
             device=preds.device, dtype=preds.dtype
-        )
+        ) #计算与alpha水平对应的z分数，用于双侧高斯区间（例如对于alpha=0.05，z将近似为1.96）
         lower = mean - z*std
         upper = mean + z*std
 
-        return (lower, upper)
+        return (lower, upper) #返回 (lower, upper)，表示置信区间。
 
     # -------------------------------------------------------------------------
-    # Helper: keep dropout layers “on” during evaluation
+    # Helper: 在评估期间保持dropout层“开启”，这个辅助方法遍历PINN的所有子模块，并明确地将任何nn.Dropout层设置为train()模式
     # -------------------------------------------------------------------------
     def enable_mc_dropout(self):
         """
