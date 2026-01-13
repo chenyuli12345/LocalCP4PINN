@@ -30,10 +30,10 @@ class VIBPINN(BayesianFeedForwardNN):
         else:
             self.log_noise = torch.tensor(math.log(init_data_noise), dtype=torch.float32)
 
-    # 变分推断模型，使用变分推断来近似后验分布。目标是最小化损失函数
+    # 变分推断模型的训练，使用变分推断来近似后验分布。目标是最小化损失函数
     def fit(self,
         # ------------ args ----------------
-        coloc_pt_num,
+        coloc_pt_num, #
         X_train=torch.tensor, Y_train=torch.tensor,
         # ----------- kwargs --------------- 
         λ_pde=1.0, λ_ic=1.0, λ_bc=1.0, λ_elbo=1.0, λ_data=1.0,
@@ -42,35 +42,37 @@ class VIBPINN(BayesianFeedForwardNN):
         stop_schedule=40000
     ):
 
-        # Optimizer: note that self.log_noise is included among the parameters.
+        # 优化器：注意self.log_noise包含在学习参数列表中
         opt = torch.optim.Adam(self.parameters(), lr=lr)
-        # Scheduler
+        # 可选学习率调度器
         scheduler = scheduler_cls(opt, **scheduler_kwargs) if scheduler_cls else None
 
-        # Training histories
+        # 创建若干历史纪录列表
         pde_loss_his = []
         bc_loss_his = []
         ic_loss_his = []
-        nelbo_loss_his = []
+        nelbo_loss_his = [] #多的东西
         data_loss_his = []
 
-        # Check which losses the PDE provides
-        has_residue_l = hasattr(self.pde, 'residual')
-        has_bc_l = hasattr(self.pde, 'boundary_loss')
-        has_ic_l = hasattr(self.pde, 'ic_loss')
+        # 检查PDE具备哪些约束能力（多的东西）
+        has_residue_l = hasattr(self.pde, 'residual') #检查是否有残差约束
+        has_bc_l = hasattr(self.pde, 'boundary_loss') #检查是否有边界条件约束
+        has_ic_l = hasattr(self.pde, 'ic_loss') #检查是否有初始条件约束
 
-        print_every = epochs / 100
+        print_every = epochs / 100 #打印间隔
 
         self.train()
 
         for epoch in range(epochs):
-            opt.zero_grad()
+            opt.zero_grad() #清零梯度
 
             loss_pde = 0
             loss_bc = 0
             loss_ic = 0
 
-            # Total number of points for normalization
+            # 用于归一化的总点数
+            # 1. 计算 KL 散度(Kullback-Leibler Divergence)，衡量变分后验分布q(w)与先验分布p(w)的差异
+            # total_pt_num 用于归一化 KL 项，平衡似然项和先验项的权重
             total_pt_num = coloc_pt_num + X_train.shape[0]
             kl_div = self.kl_divergence() / total_pt_num
 
