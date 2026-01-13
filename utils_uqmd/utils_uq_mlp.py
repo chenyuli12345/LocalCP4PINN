@@ -143,42 +143,44 @@ class MLPPINN(nn.Module):
         X_test,  
         # ----------- kwargs ---------------
     ):
-        """Return the predcited result with no uq"""
+        """简单的把上下界都设为均值（即没有不确定性）,也就是置信区间宽度为0"""
         mean = self.forward(X_test)
         lower = torch.tensor(mean, device=X_test.device)
         upper = torch.tensor(mean, device=X_test.device)
         return (lower, upper)
     
     #####################################################################
+
+    #不一样的地方，实现了基于邻域方差的UQ，一种基于数据的启发式不确定性。它的核心思想是如果在训练集中，某个区域的Y值波动很大（方差大），那么在预测这个区域的新数据时，不确定性也应该很大。”
     def local_var_predict(self, alpha, X_test, X_train, Y_train, k=10,device="cpu"):
         """
         Heuristic UQ via k-NN sample variance.
 
         Parameters
         ----------
-        X_test, Y_test : np.ndarray  – test inputs / true targets
-        X_train, Y_train : np.ndarray  – training inputs / targets
+        X_test, Y_test : np.ndarray  – 测试的输入 / 对应的真实值
+        X_train, Y_train : np.ndarray  – 训练的输入 / 对应的真实值
         factor : float  – scale-up factor for the error band (default = 1.0)
 
         Returns
         -------
-        bounds : [lower, upper]  – arrays with the same shape as Y_test
+        bounds : [lower, upper]  – 和Y_test形状相同的数组
         """
 
-        # ----- 1. model mean prediction on the test set -----
+        # ----- 1. 在测试数据上得到模型预测值 -----
         self.eval()
         with torch.no_grad():
             y_pred = self.forward(
                 torch.as_tensor(X_test, dtype=torch.float32, device=device)
-            ).cpu().numpy()  # shape (n_test, out_dim)
+            ).cpu().numpy()  # 形状(n_test, out_dim)
 
-        # ----- 2. k-nearest neighbours in input space -----
+        # ----- 2. 在输入数据空间内计算测试数据的k-近邻 -----
         k = k
-        nbrs = NearestNeighbors(n_neighbors=k, algorithm="auto").fit(X_train)
+        nbrs = NearestNeighbors(n_neighbors=k, algorithm="auto").fit(X_train) #利用sklearn在训练集输入X_train上构建索引。对于每个测试点X_test，找到最近的k个训练样本的索引(idx)
         _, idx = nbrs.kneighbors(X_test)  # idx: (n_test, k)
 
         # ----- 3. local sample variance of neighbour targets -----
-        neigh_targets = Y_train[idx]  # (n_test, k, out_dim)
+        neigh_targets = Y_train[idx]  # (n_test, k, out_dim)，计算这些邻居对应的目标值Y_train
         # unbiased variance; fall back to 0 when k == 1
         var_local = np.var(neigh_targets.cpu().numpy(), axis=1, ddof=1 if k > 1 else 0)
         sigma_local = np.sqrt(var_local)  # (n_test, out_dim)

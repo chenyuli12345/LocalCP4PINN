@@ -202,7 +202,7 @@ class DropoutPINN(nn.Module):
 
     @torch.inference_mode()
     def data_loss(self, X_test, Y_test):
-        """Compute the data loss on the testing data set"""
+        """计算测试数据X_test上的预测与真实Y_test之间的MSE损失"""
 
         preds = self(X_test)
         loss  = torch.nn.functional.mse_loss(preds, Y_test,

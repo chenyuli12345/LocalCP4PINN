@@ -8,28 +8,29 @@ import math
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 
 class VIBPINN(BayesianFeedForwardNN):
-    """Bayesian PINN training using Variational Inference (mean-field Gaussian approximation), with learnable data noise."""
+    """使用变分推断的贝叶斯神经网络(mean-field Gaussian approximation), 带有可学习的数据噪声"""
     def __init__(self, pde_class, input_dim, hidden_dims, output_dim,
                  mu_std = 0.01, rho = -3, prior_std=1.0, init_data_noise=1.0, learn_data_noise=False, act_func=nn.Tanh()):
         """
-        pde_class: an instance of a PDE class (e.g., Poisson1D, DampedOscillator1D, etc.)
-        input_dim: input dimension size
-        hidden_dims: list of hidden layer dimensions
-        output_dim: output dimension size
-        mu_std, rho: parameters for the Bayesian linear layers
-        prior_std: standard deviation of the prior on the weights (default 1.0)
-        act_func: activation function (default Tanh)
-        init_data_noise: initial guess for the data noise standard deviation (learned during training)
+        pde_class: PDE的类 (e.g., Poisson1D, DampedOscillator1D, etc.)
+        input_dim: 输入层的维度
+        hidden_dims: 隐藏层的维度
+        output_dim: 输出层的维度
+        mu_std, rho: 贝叶斯线性层的参数
+        prior_std: 权重先验的标准差（默认1.0）
+        act_func: 激活函数（默认Tanh）
+        init_data_noise: 用于数据噪声标准差的初始猜测值（该标准差将在训练过程中学习）
+        learn_data_noise: 是否将数据噪声标准差作为可学习参数（默认False）
         """
         super().__init__(input_dim, hidden_dims, output_dim, mu_std, rho, prior_std, act_func)
         self.pde = pde_class
-        # Define a learnable parameter for the log of the data noise standard deviation.
+        # 定义一个可学习的参数，用于表示数据噪声标准差的对数。
         if learn_data_noise:
             self.log_noise = nn.Parameter(torch.tensor(math.log(init_data_noise), dtype=torch.float32))
         else:
             self.log_noise = torch.tensor(math.log(init_data_noise), dtype=torch.float32)
 
-    # Variational Inference Model
+    # 变分推断模型，使用变分推断来近似后验分布。目标是最小化损失函数
     def fit(self,
         # ------------ args ----------------
         coloc_pt_num,

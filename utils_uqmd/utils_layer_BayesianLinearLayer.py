@@ -48,7 +48,7 @@ def default_mu_rho(in_features, out_features,
 
     return weight_mu, weight_rho, bias_mu, bias_rho, float(prior_std)
 
-#贝叶斯层的权重w和偏执不是一个固定的数，而是一个概率分布（通常假设为高斯分布w∼N(μ,σ^2)，其中μ是均值，σ是标准差）
+#贝叶斯层的权重w和偏置b不是一个固定的数，而是一个概率分布（通常假设为高斯分布w∼N(μ,σ^2)，其中μ是均值，σ是标准差）
 class BayesianLinearLayer(BaseLayer): #继承自BaseLayer
     """
     全因子化的贝叶斯线性层，在调用时将sample=False，即可得到后验分布的均值（确定性输出）。
