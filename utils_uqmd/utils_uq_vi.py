@@ -20,21 +20,21 @@ class VIBPINN(BayesianFeedForwardNN):
         prior_std: 权重先验的标准差（默认1.0）
         act_func: 激活函数（默认Tanh）
         init_data_noise: 用于数据噪声标准差的初始猜测值（该标准差将在训练过程中学习）
-        learn_data_noise: 是否将数据噪声标准差作为可学习参数（默认False）
+        learn_data_noise: 是否将数据噪声标准差作为可学习参数（默认False，是一个固定值）
         """
         super().__init__(input_dim, hidden_dims, output_dim, mu_std, rho, prior_std, act_func)
         self.pde = pde_class
-        # 定义一个可学习的参数，用于表示数据噪声标准差的对数。
+        # 定义一个参数log_noise，用于表示NLL损失项数据噪声标准差的对数。
         if learn_data_noise:
             self.log_noise = nn.Parameter(torch.tensor(math.log(init_data_noise), dtype=torch.float32))
         else:
             self.log_noise = torch.tensor(math.log(init_data_noise), dtype=torch.float32)
 
-    # 变分推断模型的训练，使用变分推断来近似后验分布。目标是最小化损失函数
+    # 变分推断模型的训练过程，使用变分推断来近似后验分布。目标是最小化损失函数
     def fit(self,
         # ------------ args ----------------
-        coloc_pt_num, #
-        X_train=torch.tensor, Y_train=torch.tensor,
+        coloc_pt_num, #配位点的数量
+        X_train=torch.tensor, Y_train=torch.tensor, #观测数据集
         # ----------- kwargs --------------- 
         λ_pde=1.0, λ_ic=1.0, λ_bc=1.0, λ_elbo=1.0, λ_data=1.0,
         epochs=20_000, lr=3e-3,
@@ -42,7 +42,7 @@ class VIBPINN(BayesianFeedForwardNN):
         stop_schedule=40000
     ):
 
-        # 优化器：注意self.log_noise包含在学习参数列表中
+        # 优化器：注意self.log_noise包含在学习参数列表中（参数learn_data_noise为ture的情况下）
         opt = torch.optim.Adam(self.parameters(), lr=lr)
         # 可选学习率调度器
         scheduler = scheduler_cls(opt, **scheduler_kwargs) if scheduler_cls else None
@@ -72,7 +72,7 @@ class VIBPINN(BayesianFeedForwardNN):
 
             # 用于归一化的总点数
             # 1. 计算 KL 散度(Kullback-Leibler Divergence)，衡量变分后验分布q(w)与先验分布p(w)的差异
-            # total_pt_num 用于归一化 KL 项，平衡似然项和先验项的权重
+            # total_pt_num（配位点+观测点数据） 用于归一化 KL 项，平衡似然项和先验项的权重
             total_pt_num = coloc_pt_num + X_train.shape[0]
             kl_div = self.kl_divergence() / total_pt_num
 

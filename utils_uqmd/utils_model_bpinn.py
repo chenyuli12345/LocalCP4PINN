@@ -42,11 +42,11 @@ class BayesianFeedForwardNN(BasePINNModel):
                 kl_total += layer.kl_divergence()
         return kl_total
 
-#这段代码nll_gaussian计算的是高斯负对数似然（Negative Log-Likelihood, NLL）。在贝叶斯深度学习中不仅仅是让预测值逼近真实值（像MSE那样），而是从概率的角度看待问题：假设真实数据是由模型预测的均值加上某种高斯噪声产生的，那么在这个假设下，观测到当前数据的概率有多大？要最大化这个概率（似然），等价于最小化负对数似然（NLL）。
+#这段代码nll_gaussian计算的是高斯负对数似然（Negative Log-Likelihood, NLL）。在贝叶斯深度学习中不仅仅是让预测值逼近真实值（像MSE那样），而是从概率的角度看待问题：假设真实数据是由模型预测的均值加上某种高斯噪声产生的（也就是相当于假设观测数据y_true服从以模型预测y_pred为均值、以data_noise_guess为标准差的高斯分布），那么在这个假设下，观测到当前数据的概率有多大？要最大化这个概率（似然），等价于最小化负对数似然（NLL）。
 #假设我们的观测数据𝑦_𝑡𝑟𝑢𝑒服从以模型预测值𝑦_𝑝𝑟𝑒𝑑为均值，以data_noise_guess(𝜎)为标准差的正态分布：𝑝(𝑦_𝑡𝑟𝑢𝑒∣𝑦_𝑝𝑟𝑒𝑑,𝜎)=1/(2𝜋𝜎)^(1/2)*exp⁡(−(𝑦_𝑡𝑟𝑢𝑒-𝑦_𝑝𝑟𝑒𝑑)^2/(2*𝜎^2)), 为了计算方便，我们对这个概率密度函数取对数：log⁡(1/(2𝜋𝜎^2)^(1/2))−(𝑦_𝑡𝑟𝑢𝑒-𝑦_𝑝𝑟𝑒𝑑)^2/(2*𝜎^2),其中第一项为常数项。因为在训练模型时是要“最小化损失”，而不是“最大化对数概率”，所以取负号，变成了 Negative Log-Likelihood (NLL)：(𝑦_𝑡𝑟𝑢𝑒-𝑦_𝑝𝑟𝑒𝑑)^2/(2*𝜎^2)-1/2*log⁡(1/(2𝜋𝜎^2))，其中第一项为数据拟合项，第二项为常数项（代码中被注释掉）
-#data_noise_guess的物理意义，这个参数非常关键，它代表了我们对数据本身质量的预设（即偶然不确定性/Aleatoric Uncertainty）：Loss∝MSE/𝜎^2。如果data_noise_guess(σ)设得很小，这意味着你非常信任数据，认为数据非常精确，没什么噪声，结果是Loss会变得非常大，模型会受到强烈的惩罚，拼命去拟合每一个数据点（容易过拟合）。反之则认为数据很“脏”，含有很多噪声，结果是MSE被除以了一个大数，Loss变小了。模型会觉得“反正数据也不准，差不多对齐就行了”，此时模型更倾向于听从KL散度（先验）的指挥，保持简单的平滑曲线（欠拟合）。
+#data_noise_guess的物理意义，这个参数非常关键，它代表了我们对数据本身质量的预设（即偶然不确定性/Aleatoric Uncertainty）：Loss∝MSE/𝜎^2。如果data_noise_guess(σ)设得很小，这意味着你非常信任数据，认为数据非常精确，没什么噪声，结果是Loss会变得非常大，模型会受到强烈的惩罚，拼命去拟合每一个数据点（容易过拟合）。反之则认为数据很“脏”，含有很多噪声，结果是MSE被除以了一个大数，Loss变小了。模型会觉得“反正数据也不准，差不多对齐就行了”，此时模型更倾向于听从KL散度（先验）的指挥，保持简单的平滑曲线（容易欠拟合）。
 #普通的MSE Loss只是单纯地衡量距离。NLL (Gaussian)是在衡量概率，它把误差项和数据的噪声方差联系在了一起。
-    def nll_gaussian(self, y_pred, y_true, data_noise_guess=1.0):
+    def nll_gaussian(self, y_pred, y_true, data_noise_guess=1.0): #参数项为预测值、真实值、数据噪声（默认1，设置越大越容易过拟合，设置越小越容易欠拟合）
         # omit constant
         mse = (y_pred - y_true).pow(2).sum()
         # const = N * torch.log(torch.tensor(2 * math.pi * data_noise_guess ** 2)) #常数项注释掉了
