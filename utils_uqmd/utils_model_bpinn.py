@@ -27,7 +27,7 @@ class BayesianFeedForwardNN(BasePINNModel):
         layers.append(BayesianLinear(prev_dim, output_dim, mu_std, rho, prior_std))
         self.layers = nn.ModuleList(layers)  # not using Sequential because it's a mix of custom and activations
 
-    def forward(self, x, sample: bool = True):
+    def forward(self, x, sample: bool = True): #参数为输入x，sample表示是否采样权重，默认是，相当于从分布中采样权重
         out = x
         for layer in self.layers:
             # [贝叶斯层, 激活函数, 贝叶斯层, 激活函数, ..., 激活函数, 贝叶斯层]

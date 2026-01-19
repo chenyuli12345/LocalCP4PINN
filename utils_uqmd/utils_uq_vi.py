@@ -48,11 +48,11 @@ class VIBPINN(BayesianFeedForwardNN):
         scheduler = scheduler_cls(opt, **scheduler_kwargs) if scheduler_cls else None
 
         # 创建若干历史纪录列表
-        pde_loss_his = []
-        bc_loss_his = []
-        ic_loss_his = []
-        nelbo_loss_his = [] #多的东西
-        data_loss_his = []
+        pde_loss_his = [] #用于存放PDE残差损失
+        bc_loss_his = [] #用于存放边界条件损失
+        ic_loss_his = [] #用于存放初始条件损失
+        nelbo_loss_his = [] #多的东西，用于存放总的负ELBO损失（KL散度损失和NLL损失的和）
+        data_loss_his = [] #用于存放数据损失项NLL
 
         # 检查PDE具备哪些约束能力（多的东西）
         has_residue_l = hasattr(self.pde, 'residual') #检查是否有残差约束
@@ -72,37 +72,36 @@ class VIBPINN(BayesianFeedForwardNN):
 
             # 用于归一化的总点数
             # 1. 计算 KL 散度(Kullback-Leibler Divergence)，衡量变分后验分布q(w)与先验分布p(w)的差异
-            # total_pt_num（配位点+观测点数据） 用于归一化 KL 项，平衡似然项和先验项的权重
+            # total_pt_num（配位点+观测点数据） 用于归一化KL项，平衡似然项和先验项的权重
             total_pt_num = coloc_pt_num + X_train.shape[0]
             kl_div = self.kl_divergence() / total_pt_num
 
-            # Compute the predictions and the negative log-likelihood loss,
-            # using the learned noise standard deviation: noise_std = exp(log_noise)
-            Y_pred = self.forward(X_train)
-            noise_std = torch.exp(self.log_noise)
-            loss_data = self.nll_gaussian(Y_pred, Y_train, data_noise_guess=noise_std)
+            # 计算预测值和负对数似然损失，使用学习到的噪声标准差：noise_std = exp(log_noise)
+            Y_pred = self.forward(X_train) #获得观测数据的预测值
+            noise_std = torch.exp(self.log_noise) #
+            loss_data = self.nll_gaussian(Y_pred, Y_train, data_noise_guess=noise_std) #计算数据损失项
             data_loss_his.append(loss_data.item())
 
-            # Negative ELBO
+            # 计算总的负ELBO损失
             n_elbo = loss_data + kl_div
             nelbo_loss_his.append(n_elbo.item())
     
-            # PDE residual loss (if applicable)
+            # 计算残差损失
             if has_residue_l:
                 loss_pde = (self.pde.residual(self, coloc_pt_num)**2).mean()
                 pde_loss_his.append(loss_pde.item())
 
-            # Boundary conditions loss (if applicable)
+            # 计算边界损失
             if has_bc_l:
                 loss_bc = self.pde.boundary_loss(self)
                 bc_loss_his.append(loss_bc.item())
 
-            # Initial conditions loss (if applicable)
+            # 初始损失
             if has_ic_l:
                 loss_ic = self.pde.ic_loss(self)
                 ic_loss_his.append(loss_ic.item())
 
-            # Combined loss: physics loss + negative ELBO + regularization terms
+            # 总损失: 残差损失 + 负ELBO损失 + 初边界值损失
             loss = λ_pde * loss_pde + λ_ic * loss_ic + λ_bc * loss_bc + λ_elbo * n_elbo
             loss.backward()
             opt.step()
@@ -123,27 +122,30 @@ class VIBPINN(BayesianFeedForwardNN):
         return {"Data":data_loss_his, "ELBO": nelbo_loss_his, "Initial Condition Loss": ic_loss_his,
                 "Boundary Condition Loss": bc_loss_his, "PDE Residue Loss": pde_loss_his}
 
-    # Variational Inference
+    # 变分推断（就是前向传播过程，由BNN的权重是分布，对于同一个输入x，每次预测结果y都不一样。通过采样 T次（n_samples），得到一组预测值的分布。）
     def predict(
         # ------------ args ---------------
         self, alpha,
         X_test,  
         # ----------- kwargs --------------- 
-        n_samples=20000
+        n_samples=20000 #前向传播次数
     ):
-        """Draw samples from the variational posterior and return prediction bounds
-        with configurable confidence level."""
+        """从变分后验中抽取样本，并返回可配置置信水平的预测区间"""
         self.eval()
-        preds = []
+        preds = [] #用于存储多次采样的预测结果
+
+        # 1.多次前向传播 (MC Sampling)
         for _ in range(n_samples):
-            y_pred = self.forward(X_test)
-            preds.append(y_pred.detach())
-        preds = torch.stack(preds)
+            y_pred = self.forward(X_test) #每次调用，权重都会随机变化
+            preds.append(y_pred.detach()) #将预测存储到preds列表中
+        preds = torch.stack(preds) #将多次预测的列表转换为张量，形状为 (n_samples前向传播次数, num_test_points, output_dim)
 
-        mean = preds.mean(dim=0)
-        std = preds.std(dim=0)
+        # 2.统计多次预测的均值和标准差
+        mean = preds.mean(dim=0) # 预测均值
+        std = preds.std(dim=0)   # 预测不确定性 (Epistemic Uncertainty)
 
-        # Convert alpha value to z_score
+        # 3.计算置信区间 (Confidence Interval)
+        # 计算alpha值对应的Z-score(双尾)
         alpha_tensor = torch.tensor([alpha / 2], device=X_test.device, dtype=torch.float32)
         z_score = torch.distributions.Normal(0, 1).icdf(1 - alpha_tensor).abs().item()
         
@@ -155,7 +157,7 @@ class VIBPINN(BayesianFeedForwardNN):
     
     @torch.inference_mode()
     def data_loss(self, X_test, Y_test):
-        """Compute the data loss on the testing data set"""
+        """计算测试数据集上的数据损失"""
 
         preds = self(X_test)
         loss  = torch.nn.functional.mse_loss(preds, Y_test,

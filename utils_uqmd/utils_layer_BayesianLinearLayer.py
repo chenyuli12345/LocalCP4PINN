@@ -74,8 +74,8 @@ class BayesianLinearLayer(BaseLayer): #继承自BaseLayer
     # ---------- forward ----------
     def forward(self, x, *, sample: bool = True):
         """
-        sample=True: 训练时使用。从分布中随机采样权重，模拟不确定性。
-        sample=False: 预测/测试时使用。直接使用均值，相当于普通的确定性神经网络。
+        sample=True: 从分布中随机采样权重，模拟不确定性。
+        sample=False: 直接使用均值，相当于普通的确定性神经网络。
         """
         if sample: #训练时
             w_sigma = self._softplus(self.weight_rho)
