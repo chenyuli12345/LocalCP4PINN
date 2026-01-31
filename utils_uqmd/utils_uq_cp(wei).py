@@ -7,7 +7,7 @@ import torch
 from sklearn.neighbors import NearestNeighbors
 from utils_uqmd.utils_uq_hmc import HMCBPINN
 
-# 🔹 tiny helper: robust Torch/NumPy conversion
+# 用于将输入（可以是 PyTorch Tensor 或 NumPy 数组）统一转换为 NumPy 数组
 def _to_numpy(x):
     """Return a NumPy array regardless of whether *x* is Tensor or ndarray."""
     if isinstance(x, torch.Tensor):
@@ -18,21 +18,21 @@ def _to_numpy(x):
 class CP:
     """
     Conformal predictor wrapper supporting three heuristics:
-      • 'feature'  – k-NN distance in input space
-      • 'latent'   – k-NN distance in hidden space (model must return_hidden=True)
-      • 'raw_std'  – raw predictive interval width from the model itself
+      • 'feature'  – 输入空间的 k-NN 距离
+      • 'latent'   – 隐藏空间的 k-NN 距离（模型必须 return_hidden=True）
+      • 'raw_std'  – 模型自己的原始预测区间宽度
     """
 
     def __init__(self, model, device=None):
         self.model  = model
         self.device = device or next(model.parameters()).device
         # 1️⃣ put the model in eval mode once and for all
-        self.model.eval()
+        self.model.eval() #模型设置为评估模式
 
     # ════════════════════════════════════════════════════════════════
     # 1️⃣  k-NN helper functions
     # ════════════════════════════════════════════════════════════════
-    def _feature_distance(self, X_test, X_train, k):
+    def _feature_distance(self, X_test, X_train, k): #基于测试点与训练集在原始特征空间中的k近邻距离来衡量不确定性。距离越远，通常认为不确定性越大。
         X_test_np = X_test.clone().detach()
         mean = self.model(X_test_np.to(self.device))
         X_test = _to_numpy(X_test)
@@ -41,7 +41,7 @@ class CP:
         distances, _ = nbrs.kneighbors(X_test)
         return distances.mean(axis=1), mean              # (N_cal,)
 
-    def _latent_distance(self, X_test, X_train, k):
+    def _latent_distance(self, X_test, X_train, k): #基于测试点与训练集在隐藏特征空间中的k近邻距离来衡量不确定性
         X_test_np = X_test.clone().detach()
         with torch.no_grad():
             mean = self.model(X_test_np.to(self.device))
@@ -59,7 +59,7 @@ class CP:
     # ════════════════════════════════════════════════════════════════
     # 2️⃣  Raw predictive width
     # ════════════════════════════════════════════════════════════════
-    def _rawstd(self, alpha, X):
+    def _rawstd(self, alpha, X): # (模型自己的原始预测区间宽度): 这种方法假设底层模型已经能够提供某种形式的预测区间（例如，通过 model.predict(alpha, X) 方法），并使用这个区间的宽度作为不符合度分数的基础
         """Return (upper-lower) from the model’s own `predict` method."""
         self.model.eval()
         with torch.no_grad():
